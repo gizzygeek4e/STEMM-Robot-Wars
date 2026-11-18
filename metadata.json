@@ -1,0 +1,6 @@
+{
+  "name": "RoboPitch Championship",
+  "description": "Real-time Robot Soccer tournament scoreboard, team rosters, standings, live bracket viewer, and secure administrative control center.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

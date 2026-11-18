@@ -1,0 +1,99 @@
+{
+  "entities": {
+    "TournamentMeta": {
+      "title": "TournamentMeta",
+      "description": "Top-level metadata and configuration for the Robot Soccer tournament.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "season": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "activeMatchId": { "type": "string", "maxLength": 64 },
+        "rulesVersion": { "type": "integer" },
+        "visibility": { "type": "string", "enum": ["public"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "season", "visibility", "createdAt", "updatedAt"]
+    },
+    "Team": {
+      "title": "Team",
+      "description": "A competing Robot Soccer team with 2-robot unit roster and seed metadata.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "shortCode": { "type": "string", "minLength": 2, "maxLength": 6 },
+        "division": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "region": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "accentColor": { "type": "string", "maxLength": 16, "pattern": "^#[0-9a-fA-F]{6}$" },
+        "seed": { "type": "integer" },
+        "robots": { "type": "array", "description": "Robot units on the team roster." },
+        "visibility": { "type": "string", "enum": ["public"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "shortCode", "division", "region", "accentColor", "seed", "robots", "visibility", "createdAt", "updatedAt"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "A 4-minute tournament match with real-time score, Flip Over bonus counts, status, clock, bracket links, and match events.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "round": { "type": "string", "enum": ["Group", "Play-In", "Quarterfinal", "Semifinal", "Third Place", "Final"] },
+        "bracketSlot": { "type": "integer" },
+        "nextMatchId": { "type": "string", "maxLength": 64 },
+        "nextMatchSide": { "type": "string", "enum": ["home", "away", ""] },
+        "homeTeamId": { "type": "string", "maxLength": 64 },
+        "awayTeamId": { "type": "string", "maxLength": 64 },
+        "homeScore": { "type": "integer" },
+        "awayScore": { "type": "integer" },
+        "homeFlipOvers": { "type": "integer" },
+        "awayFlipOvers": { "type": "integer" },
+        "durationSeconds": { "type": "integer" },
+        "status": { "type": "string", "enum": ["scheduled", "live", "halftime", "finished"] },
+        "period": { "type": "string", "maxLength": 40 },
+        "clockSeconds": { "type": "integer" },
+        "clockRunning": { "type": "boolean" },
+        "arenaPitch": { "type": "string", "maxLength": 60 },
+        "scheduledAt": { "type": "string", "maxLength": 64 },
+        "winnerTeamId": { "type": "string", "maxLength": 64 },
+        "events": { "type": "array", "description": "Up to 50 match events." },
+        "visibility": { "type": "string", "enum": ["public"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "round", "bracketSlot", "homeScore", "awayScore", "homeFlipOvers", "awayFlipOvers", "durationSeconds", "status", "period", "clockSeconds", "clockRunning", "arenaPitch", "scheduledAt", "events", "visibility", "createdAt", "updatedAt"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorised tournament administrator record.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 160 },
+        "role": { "type": "string", "enum": ["admin"] }
+      },
+      "required": ["uid", "email", "role"]
+    }
+  },
+  "firestore": {
+    "/tournament/{tournamentId}": {
+      "schema": { "$ref": "#/entities/TournamentMeta" },
+      "description": "Publicly readable tournament metadata, writable only by verified tournament admins."
+    },
+    "/teams/{teamId}": {
+      "schema": { "$ref": "#/entities/Team" },
+      "description": "Publicly readable robot soccer teams and rosters, writable only by verified tournament admins."
+    },
+    "/matches/{matchId}": {
+      "schema": { "$ref": "#/entities/Match" },
+      "description": "Publicly readable match scores, Flip Overs, schedules, and bracket nodes, writable only by verified tournament admins."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Restricted admin allowlist records."
+    }
+  }
+}

@@ -1,0 +1,175 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'hermanf@gisboyshigh.net' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isNullableString(data, field, maxLen) {
+      return !(field in data) || data[field] == null || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isValidTournament(data) {
+      return data.keys().hasAll(['id', 'name', 'season', 'visibility', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'season', 'activeMatchId', 'rulesVersion', 'visibility', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
+        && data.season is string && data.season.size() >= 2 && data.season.size() <= 120
+        && isNullableString(data, 'activeMatchId', 64)
+        && (!('rulesVersion' in data) || (data.rulesVersion is int && data.rulesVersion >= 1 && data.rulesVersion <= 100))
+        && data.visibility == 'public'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTeam(data) {
+      return data.keys().hasAll(['id', 'name', 'shortCode', 'division', 'region', 'accentColor', 'seed', 'robots', 'visibility', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'shortCode', 'division', 'region', 'accentColor', 'seed', 'robots', 'visibility', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 80
+        && data.shortCode is string && data.shortCode.size() >= 2 && data.shortCode.size() <= 6
+        && data.division is string && data.division.size() >= 2 && data.division.size() <= 60
+        && data.region is string && data.region.size() >= 2 && data.region.size() <= 60
+        && data.accentColor is string && data.accentColor.size() == 7 && data.accentColor.matches('^#[0-9a-fA-F]{6}$')
+        && data.seed is int && data.seed >= 1 && data.seed <= 64
+        && data.robots is list && data.robots.size() <= 10
+        && (data.robots.size() == 0 || data.robots[0] is map)
+        && data.visibility == 'public'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMatch(data) {
+      return data.keys().hasAll([
+          'id', 'round', 'bracketSlot', 'homeScore', 'awayScore',
+          'homeFlipOvers', 'awayFlipOvers', 'durationSeconds', 'status',
+          'period', 'clockSeconds', 'clockRunning', 'arenaPitch', 'scheduledAt',
+          'events', 'visibility', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'round', 'bracketSlot', 'nextMatchId', 'nextMatchSide',
+          'homeTeamId', 'awayTeamId', 'homeScore', 'awayScore',
+          'homeFlipOvers', 'awayFlipOvers', 'durationSeconds', 'status',
+          'period', 'clockSeconds', 'clockRunning', 'arenaPitch', 'scheduledAt',
+          'winnerTeamId', 'events', 'visibility', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.round in ['Group', 'Play-In', 'Quarterfinal', 'Semifinal', 'Third Place', 'Final']
+        && data.bracketSlot is int && data.bracketSlot >= 0 && data.bracketSlot <= 100
+        && isNullableString(data, 'nextMatchId', 64)
+        && (!('nextMatchSide' in data) || data.nextMatchSide == null || data.nextMatchSide in ['home', 'away', ''])
+        && isNullableString(data, 'homeTeamId', 64)
+        && isNullableString(data, 'awayTeamId', 64)
+        && isNullableString(data, 'winnerTeamId', 64)
+        && data.homeScore is int && data.homeScore >= 0 && data.homeScore <= 999
+        && data.awayScore is int && data.awayScore >= 0 && data.awayScore <= 999
+        && data.homeFlipOvers is int && data.homeFlipOvers >= 0 && data.homeFlipOvers <= 999
+        && data.awayFlipOvers is int && data.awayFlipOvers >= 0 && data.awayFlipOvers <= 999
+        && data.durationSeconds is int && data.durationSeconds >= 60 && data.durationSeconds <= 7200
+        && data.status in ['scheduled', 'live', 'halftime', 'finished']
+        && data.period is string && data.period.size() >= 1 && data.period.size() <= 40
+        && data.clockSeconds is int && data.clockSeconds >= 0 && data.clockSeconds <= 7200
+        && data.clockRunning is bool
+        && data.arenaPitch is string && data.arenaPitch.size() >= 1 && data.arenaPitch.size() <= 60
+        && data.scheduledAt is string && data.scheduledAt.size() >= 1 && data.scheduledAt.size() <= 64
+        && data.events is list && data.events.size() <= 50
+        && (data.events.size() == 0 || data.events[0] is map)
+        && data.visibility == 'public'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Connection check document
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Publicly readable tournament metadata, admin-only writes
+    match /tournament/{tournamentId} {
+      allow get: if isValidId(tournamentId) && existing().visibility == 'public';
+      allow list: if resource.data.visibility == 'public';
+      allow create: if isValidId(tournamentId) && isAdmin() && isValidTournament(incoming())
+        && incoming().id == tournamentId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(tournamentId) && isAdmin() && isValidTournament(incoming())
+        && incoming().id == tournamentId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'season', 'activeMatchId', 'rulesVersion', 'updatedAt']);
+      allow delete: if isValidId(tournamentId) && isAdmin();
+    }
+
+    // Publicly readable teams & rosters, admin-only writes
+    match /teams/{teamId} {
+      allow get: if isValidId(teamId) && existing().visibility == 'public';
+      allow list: if resource.data.visibility == 'public';
+      allow create: if isValidId(teamId) && isAdmin() && isValidTeam(incoming())
+        && incoming().id == teamId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(teamId) && isAdmin() && isValidTeam(incoming())
+        && incoming().id == teamId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'shortCode', 'division', 'region', 'accentColor', 'seed', 'robots', 'updatedAt']);
+      allow delete: if isValidId(teamId) && isAdmin();
+    }
+
+    // Publicly readable matches, admin-only writes
+    match /matches/{matchId} {
+      allow get: if isValidId(matchId) && existing().visibility == 'public';
+      allow list: if resource.data.visibility == 'public';
+      allow create: if isValidId(matchId) && isAdmin() && isValidMatch(incoming())
+        && incoming().id == matchId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(matchId) && isAdmin() && isValidMatch(incoming())
+        && incoming().id == matchId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'round', 'bracketSlot', 'nextMatchId', 'nextMatchSide',
+          'homeTeamId', 'awayTeamId', 'homeScore', 'awayScore',
+          'homeFlipOvers', 'awayFlipOvers', 'durationSeconds', 'status',
+          'period', 'clockSeconds', 'clockRunning', 'arenaPitch', 'scheduledAt',
+          'winnerTeamId', 'events', 'updatedAt'
+        ]);
+      allow delete: if isValidId(matchId) && isAdmin();
+    }
+
+    // Admin allowlist (strictly owner-readable only, no self-registration)
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && isSignedIn() && request.auth.uid == userId;
+      allow create, update, delete: if false;
+    }
+  }
+}
