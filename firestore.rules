@@ -114,7 +114,7 @@ service cloud.firestore {
 
     // Publicly readable tournament metadata, admin-only writes
     match /tournament/{tournamentId} {
-      allow get: if isValidId(tournamentId) && existing().visibility == 'public';
+      allow get: if isValidId(tournamentId) && (resource == null || existing().visibility == 'public');
       allow list: if resource.data.visibility == 'public';
       allow create: if isValidId(tournamentId) && isAdmin() && isValidTournament(incoming())
         && incoming().id == tournamentId
@@ -130,7 +130,7 @@ service cloud.firestore {
 
     // Publicly readable teams & rosters, admin-only writes
     match /teams/{teamId} {
-      allow get: if isValidId(teamId) && existing().visibility == 'public';
+      allow get: if isValidId(teamId) && (resource == null || existing().visibility == 'public');
       allow list: if resource.data.visibility == 'public';
       allow create: if isValidId(teamId) && isAdmin() && isValidTeam(incoming())
         && incoming().id == teamId
@@ -146,7 +146,7 @@ service cloud.firestore {
 
     // Publicly readable matches, admin-only writes
     match /matches/{matchId} {
-      allow get: if isValidId(matchId) && existing().visibility == 'public';
+      allow get: if isValidId(matchId) && (resource == null || existing().visibility == 'public');
       allow list: if resource.data.visibility == 'public';
       allow create: if isValidId(matchId) && isAdmin() && isValidMatch(incoming())
         && incoming().id == matchId

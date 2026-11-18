@@ -171,20 +171,23 @@ export async function syncFullStateToFirestore(state: TournamentState): Promise<
   if (!canAdminSync()) return;
 
   try {
-    const existingTeamsSnap = await getDocs(collection(db, 'teams'));
-    const existingMatchesSnap = await getDocs(collection(db, 'matches'));
-    const existingTournamentSnap = await getDoc(doc(db, 'tournament', state.meta.id));
+    const [existingTeamsSnap, existingMatchesSnap, existingTournamentSnap] = await Promise.all([
+      getDocs(query(collection(db, 'teams'), where('visibility', '==', 'public'))),
+      getDocs(query(collection(db, 'matches'), where('visibility', '==', 'public'))),
+      getDoc(doc(db, 'tournament', state.meta.id)),
+    ]);
 
     const existingTeamIds = new Set(existingTeamsSnap.docs.map((d) => d.id));
     const existingMatchIds = new Set(existingMatchesSnap.docs.map((d) => d.id));
 
-    const batch = writeBatch(db);
+    type BatchOp = (batch: ReturnType<typeof writeBatch>) => void;
+    const ops: BatchOp[] = [];
 
     const metaRef = doc(db, 'tournament', state.meta.id);
     if (existingTournamentSnap.exists()) {
-      batch.update(metaRef, buildTournamentPayload(state.meta, false));
+      ops.push((b) => b.update(metaRef, buildTournamentPayload(state.meta, false)));
     } else {
-      batch.set(metaRef, buildTournamentPayload(state.meta, true));
+      ops.push((b) => b.set(metaRef, buildTournamentPayload(state.meta, true)));
     }
 
     const nextTeamIds = new Set(state.teams.map((t) => t.id));
@@ -192,35 +195,42 @@ export async function syncFullStateToFirestore(state: TournamentState): Promise<
 
     for (const oldTeamId of existingTeamIds) {
       if (!nextTeamIds.has(oldTeamId)) {
-        batch.delete(doc(db, 'teams', oldTeamId));
+        ops.push((b) => b.delete(doc(db, 'teams', oldTeamId)));
       }
     }
 
     for (const oldMatchId of existingMatchIds) {
       if (!nextMatchIds.has(oldMatchId)) {
-        batch.delete(doc(db, 'matches', oldMatchId));
+        ops.push((b) => b.delete(doc(db, 'matches', oldMatchId)));
       }
     }
 
     for (const team of state.teams) {
       const teamRef = doc(db, 'teams', team.id);
       if (existingTeamIds.has(team.id)) {
-        batch.update(teamRef, buildTeamPayload(team, false));
+        ops.push((b) => b.update(teamRef, buildTeamPayload(team, false)));
       } else {
-        batch.set(teamRef, buildTeamPayload(team, true));
+        ops.push((b) => b.set(teamRef, buildTeamPayload(team, true)));
       }
     }
 
     for (const match of state.matches) {
       const matchRef = doc(db, 'matches', match.id);
       if (existingMatchIds.has(match.id)) {
-        batch.update(matchRef, buildMatchPayload(match, false));
+        ops.push((b) => b.update(matchRef, buildMatchPayload(match, false)));
       } else {
-        batch.set(matchRef, buildMatchPayload(match, true));
+        ops.push((b) => b.set(matchRef, buildMatchPayload(match, true)));
       }
     }
 
-    await batch.commit();
+    for (let i = 0; i < ops.length; i += 400) {
+      const chunk = ops.slice(i, i + 400);
+      const batch = writeBatch(db);
+      for (const op of chunk) {
+        op(batch);
+      }
+      await batch.commit();
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, 'tournament/main');
   }

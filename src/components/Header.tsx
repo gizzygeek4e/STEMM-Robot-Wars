@@ -30,16 +30,21 @@ export function Header({
   return (
     <header className="sticky top-0 z-40 bg-[#090B0E]/92 backdrop-blur-md border-b border-white/10">
       <div className="max-w-[1360px] mx-auto px-4 sm:px-8 h-16 flex items-center justify-between gap-8">
-        {/* Zone 1: Single-line Brand Wordmark */}
+        {/* Zone 1: Site Logo & Single-line Brand Wordmark */}
         <button
           type="button"
           onClick={() => {
             onToggleMode('public');
             onNavigateSection('live');
           }}
-          className="font-display text-2xl font-extrabold tracking-tight text-white hover:text-[#C8F135] transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#C8F135]"
+          className="inline-flex items-center gap-3 font-display text-2xl font-extrabold tracking-tight text-white hover:text-[#C8F135] transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#C8F135]"
         >
-          {tournamentName || 'RoboPitch'}
+          <img
+            src="./assets/aistudio/For_Hermondo-01_e4425e22.svg"
+            alt="Gisborne Boys' High School crest"
+            className="w-9 h-9 rounded-lg object-cover shrink-0 border border-white/15"
+          />
+          <span>{tournamentName || 'RoboPitch'}</span>
         </button>
 
         {/* Zone 2: 5 concise single-line text nav links */}

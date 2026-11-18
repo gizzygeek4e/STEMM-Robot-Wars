@@ -179,34 +179,46 @@ export function AdminDashboard({
     }
   }, [activeTeam?.id, activeTeam?.name, activeTeam?.shortCode, activeTeam?.division, activeTeam?.seed, activeTeam?.accentColor]);
 
-  // If the server booted fresh without local state and Firestore holds persisted/reset state, hydrate server
+  // Hydrate fresh server from Firestore if server booted empty, or auto-sync Firestore when admin signs in
   useEffect(() => {
-    if (!isAuthorizedAdmin || !untouchedBoot || hydratedRef.current || !user) return;
+    if (!isAuthorizedAdmin || !user) {
+      hydratedRef.current = false;
+      return;
+    }
+    if (hydratedRef.current) return;
     hydratedRef.current = true;
     void (async () => {
       try {
         const fsState = await fetchFirestoreTournamentState();
-        if (!fsState) return;
-        const token = await user.getIdToken();
-        const res = await fetch('/api/admin/hydrate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ state: fsState }),
-        });
-        if (res.ok) {
-          const data = (await res.json()) as { state: TournamentState; hydrated: boolean };
-          if (data.hydrated) {
-            onStateUpdated(data.state);
+        if (backendMode === 'server' && untouchedBoot && fsState) {
+          const token = await user.getIdToken();
+          const res = await fetch('/api/admin/hydrate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ state: fsState }),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as { state: TournamentState; hydrated: boolean };
+            if (data.hydrated) {
+              onStateUpdated(data.state);
+              return;
+            }
           }
         }
-      } catch {
-        // Ignore if offline or Firestore unreadable
+        // Automatically sync current tournament state to Firestore when admin signs in
+        if (!fsState || (backendMode === 'server' && !untouchedBoot)) {
+          await syncFullStateToFirestore(state);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.includes('Missing or insufficient permissions')) {
+          setFeedback({ type: 'err', text: err.message });
+        }
       }
     })();
-  }, [isAuthorizedAdmin, untouchedBoot, user, onStateUpdated]);
+  }, [isAuthorizedAdmin, untouchedBoot, backendMode, user, onStateUpdated, state]);
 
   function notify(type: 'ok' | 'err', text: string) {
     setFeedback({ type, text });
@@ -480,7 +492,8 @@ export function AdminDashboard({
           'DELETE',
         );
         onStateUpdated(data.state);
-        void deleteMatchFromFirestore(matchId);
+        await deleteMatchFromFirestore(matchId);
+        await syncTournamentMetaToFirestore(data.state.meta);
       }
       notify('ok', 'Fixture removed.');
     } catch (err) {
@@ -711,7 +724,7 @@ export function AdminDashboard({
           'DELETE',
         );
         onStateUpdated(data.state);
-        await deleteTeamFromFirestore(teamId);
+        await syncFullStateToFirestore(data.state);
       }
       notify('ok', 'Team deleted.');
     } catch (err) {
@@ -998,7 +1011,7 @@ export function AdminDashboard({
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-xs font-medium text-[#C8F135]">
             <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-            <span>Authenticated Director · {user.email}</span>
+            <span>Authenticated Director · {user.email} · Auto-Sync Active</span>
           </div>
           <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-white">
             Tournament Control Center
