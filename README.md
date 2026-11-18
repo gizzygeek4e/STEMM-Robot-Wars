@@ -38,18 +38,24 @@ Real-time Robot Soccer tournament scoreboard, team roster manager, group standin
    npm start
    ```
 
-## Publishing to GitHub
+## Publishing & Deploying with GitHub Pages
 
-1. Initialize Git (if not already initialized) and stage the project:
+This repository includes `.github/workflows/static.yml`, which automatically builds (`npm run build`) and deploys `./dist` to **GitHub Pages** on every push to `main`. When hosted statically on GitHub Pages, the app automatically switches to **Cloud Firestore real-time mode** (`onSnapshot` + direct Firestore writes) so spectators and the Director dashboard remain synchronized across devices.
+
+1. Push your repository to GitHub:
    ```bash
    git init
    git add .
    git commit -m "Initial commit: RoboPitch Championship"
-   ```
-2. Create an empty repository on GitHub, then add the remote and push:
-   ```bash
    git branch -M main
    git remote add origin https://github.com/<your-username>/<your-repo>.git
    git push -u origin main
    ```
    *(Note: `.env*` and `data/` are excluded by `.gitignore` so local secrets and runtime state are not pushed.)*
+2. Enable GitHub Pages in your repository:
+   - Open **Settings → Pages** on GitHub.
+   - Under **Build and deployment → Source**, choose **GitHub Actions**.
+3. Whitelist your GitHub Pages domain in Firebase Authentication:
+   - Open the [Firebase Console](https://console.firebase.google.com/) → **Authentication → Settings → Authorized domains**.
+   - Click **Add domain** and add `<your-username>.github.io` so Google Sign-In works for the authorized Director account.
+

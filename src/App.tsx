@@ -12,8 +12,16 @@ import { AUTHORIZED_ADMIN_EMAIL, auth } from './firebase';
 import { useTournamentSocket } from './hooks/useTournamentSocket';
 
 export default function App() {
-  const { state, setState, untouchedBoot, socketStatus, connectedClients, error, refresh } =
-    useTournamentSocket();
+  const {
+    state,
+    setState,
+    backendMode,
+    untouchedBoot,
+    socketStatus,
+    connectedClients,
+    error,
+    refresh,
+  } = useTournamentSocket();
 
   const [mode, setMode] = useState<'public' | 'admin'>('public');
   const [activeSection, setActiveSection] = useState<PublicSection>('live');
@@ -95,6 +103,7 @@ export default function App() {
               user={user}
               authReady={authReady}
               state={state}
+              backendMode={backendMode}
               untouchedBoot={untouchedBoot}
               onStateUpdated={setState}
               onBackToPublic={() => setMode('public')}
@@ -105,6 +114,7 @@ export default function App() {
                 meta={state.meta}
                 matches={state.matches}
                 teams={state.teams}
+                backendMode={backendMode}
                 socketStatus={socketStatus}
                 connectedClients={connectedClients}
                 selectedMatchId={selectedMatchId}

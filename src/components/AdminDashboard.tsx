@@ -30,8 +30,27 @@ import {
   syncFullStateToFirestore,
   syncMatchToFirestore,
   syncTeamToFirestore,
+  syncTournamentMetaToFirestore,
 } from '../utils/firestoreSync';
 import { formatMatchClock, formatScheduledDateTime } from '../utils/formatTime';
+import {
+  mutateAddMatchEvent,
+  mutateBulkCreateTeams,
+  mutateCreateMatch,
+  mutateCreateTeam,
+  mutateDeleteMatch,
+  mutateDeleteMatchEvent,
+  mutateDeleteTeam,
+  mutateGenerateTournamentSchedule,
+  mutateMatchFlipOver,
+  mutateMatchScore,
+  mutatePatchMatch,
+  mutateResetTournament,
+  mutateSeedBracketFromStandings,
+  mutateTournamentMeta,
+  mutateUpdateTeam,
+} from '../utils/tournamentMutations';
+import type { BackendMode } from '../hooks/useTournamentSocket';
 import { BulkTeamImporter, type BulkTeamDraft } from './BulkTeamImporter';
 import { TeamCrest } from './TeamCrest';
 
@@ -39,6 +58,7 @@ interface AdminDashboardProps {
   user: User | null;
   authReady: boolean;
   state: TournamentState;
+  backendMode?: BackendMode;
   untouchedBoot?: boolean;
   onStateUpdated: (nextState: TournamentState) => void;
   onBackToPublic: () => void;
@@ -50,6 +70,7 @@ export function AdminDashboard({
   user,
   authReady,
   state,
+  backendMode = 'server',
   untouchedBoot = false,
   onStateUpdated,
   onBackToPublic,
@@ -238,13 +259,28 @@ export function AdminDashboard({
     setBusy(true);
     try {
       const unitNumber = side === 'home' ? homeScorerUnit : awayScorerUnit;
-      const data = await adminFetch<{ match: Match; state: TournamentState }>(
-        `/api/admin/matches/${activeMatch.id}/score`,
-        'POST',
-        { side, delta, robotNumber: unitNumber, eventType: 'goal' },
-      );
-      onStateUpdated(data.state);
-      void syncMatchToFirestore(data.match);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateMatchScore(state, activeMatch.id, {
+          side,
+          delta,
+          robotNumber: unitNumber,
+          eventType: 'goal',
+        });
+        onStateUpdated(res.state);
+        await syncMatchToFirestore(res.match);
+        for (const extra of res.extraChangedMatches) {
+          await syncMatchToFirestore(extra);
+        }
+      } else {
+        const data = await adminFetch<{ match: Match; state: TournamentState }>(
+          `/api/admin/matches/${activeMatch.id}/score`,
+          'POST',
+          { side, delta, robotNumber: unitNumber, eventType: 'goal' },
+        );
+        onStateUpdated(data.state);
+        void syncMatchToFirestore(data.match);
+      }
       notify('ok', `Updated ${side === 'home' ? 'Home' : 'Away'} score and broadcast live.`);
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to update score');
@@ -258,13 +294,24 @@ export function AdminDashboard({
     setBusy(true);
     try {
       const unitNumber = side === 'home' ? homeScorerUnit : awayScorerUnit;
-      const data = await adminFetch<{ match: Match; state: TournamentState }>(
-        `/api/admin/matches/${activeMatch.id}/flip`,
-        'POST',
-        { side, delta, robotNumber: unitNumber },
-      );
-      onStateUpdated(data.state);
-      void syncMatchToFirestore(data.match);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateMatchFlipOver(state, activeMatch.id, {
+          side,
+          delta,
+          robotNumber: unitNumber,
+        });
+        onStateUpdated(res.state);
+        await syncMatchToFirestore(res.match);
+      } else {
+        const data = await adminFetch<{ match: Match; state: TournamentState }>(
+          `/api/admin/matches/${activeMatch.id}/flip`,
+          'POST',
+          { side, delta, robotNumber: unitNumber },
+        );
+        onStateUpdated(data.state);
+        void syncMatchToFirestore(data.match);
+      }
       notify(
         'ok',
         `Updated ${side === 'home' ? 'Home' : 'Away'} Flip Over bonus (+1 pt each).`,
@@ -279,17 +326,29 @@ export function AdminDashboard({
   async function handlePatchMatch(matchId: string, patch: Partial<Match>) {
     setBusy(true);
     try {
-      const data = await adminFetch<{ match: Match; state: TournamentState }>(
-        `/api/admin/matches/${matchId}`,
-        'PATCH',
-        patch,
-      );
-      onStateUpdated(data.state);
-      // Sync updated match and any downstream bracket match
-      await syncMatchToFirestore(data.match);
-      if (data.match.nextMatchId) {
-        const nextM = data.state.matches.find((m) => m.id === data.match.nextMatchId);
-        if (nextM) await syncMatchToFirestore(nextM);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutatePatchMatch(state, matchId, patch);
+        onStateUpdated(res.state);
+        await syncMatchToFirestore(res.match);
+        for (const extra of res.extraChangedMatches) {
+          await syncMatchToFirestore(extra);
+        }
+        if (res.metaChanged) {
+          await syncTournamentMetaToFirestore(res.state.meta);
+        }
+      } else {
+        const data = await adminFetch<{ match: Match; state: TournamentState }>(
+          `/api/admin/matches/${matchId}`,
+          'PATCH',
+          patch,
+        );
+        onStateUpdated(data.state);
+        await syncMatchToFirestore(data.match);
+        if (data.match.nextMatchId) {
+          const nextM = data.state.matches.find((m) => m.id === data.match.nextMatchId);
+          if (nextM) await syncMatchToFirestore(nextM);
+        }
       }
       notify('ok', 'Match state updated across all connected clients.');
     } catch (err) {
@@ -304,19 +363,32 @@ export function AdminDashboard({
     if (!activeMatch || !eventTeamId || !eventDesc.trim()) return;
     setBusy(true);
     try {
-      const data = await adminFetch<{ match: Match; state: TournamentState }>(
-        `/api/admin/matches/${activeMatch.id}/events`,
-        'POST',
-        {
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateAddMatchEvent(state, activeMatch.id, {
           teamId: eventTeamId,
           robotNumber: eventUnit || '00',
           type: eventType,
           description: eventDesc.trim(),
-        },
-      );
-      onStateUpdated(data.state);
-      setEventDesc('');
-      void syncMatchToFirestore(data.match);
+        });
+        onStateUpdated(res.state);
+        setEventDesc('');
+        await syncMatchToFirestore(res.match);
+      } else {
+        const data = await adminFetch<{ match: Match; state: TournamentState }>(
+          `/api/admin/matches/${activeMatch.id}/events`,
+          'POST',
+          {
+            teamId: eventTeamId,
+            robotNumber: eventUnit || '00',
+            type: eventType,
+            description: eventDesc.trim(),
+          },
+        );
+        onStateUpdated(data.state);
+        setEventDesc('');
+        void syncMatchToFirestore(data.match);
+      }
       notify('ok', 'Match timeline event logged.');
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to add event');
@@ -329,12 +401,19 @@ export function AdminDashboard({
     if (!activeMatch) return;
     setBusy(true);
     try {
-      const data = await adminFetch<{ match: Match; state: TournamentState }>(
-        `/api/admin/matches/${activeMatch.id}/events/${eventId}`,
-        'DELETE',
-      );
-      onStateUpdated(data.state);
-      void syncMatchToFirestore(data.match);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateDeleteMatchEvent(state, activeMatch.id, eventId);
+        onStateUpdated(res.state);
+        await syncMatchToFirestore(res.match);
+      } else {
+        const data = await adminFetch<{ match: Match; state: TournamentState }>(
+          `/api/admin/matches/${activeMatch.id}/events/${eventId}`,
+          'DELETE',
+        );
+        onStateUpdated(data.state);
+        void syncMatchToFirestore(data.match);
+      }
       notify('ok', 'Event removed from timeline.');
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to delete event');
@@ -348,20 +427,34 @@ export function AdminDashboard({
     setBusy(true);
     try {
       const iso = newMatchTime.length === 16 ? `${newMatchTime}:00-08:00` : newMatchTime;
-      const data = await adminFetch<{ match: Match; state: TournamentState }>(
-        '/api/admin/matches',
-        'POST',
-        {
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateCreateMatch(state, {
           round: newMatchRound,
           arenaPitch: newMatchPitch,
           homeTeamId: newMatchHomeId || null,
           awayTeamId: newMatchAwayId || null,
           scheduledAt: iso,
-        },
-      );
-      onStateUpdated(data.state);
-      setSelectedMatchId(data.match.id);
-      void syncMatchToFirestore(data.match);
+        });
+        onStateUpdated(res.state);
+        setSelectedMatchId(res.match.id);
+        await syncMatchToFirestore(res.match);
+      } else {
+        const data = await adminFetch<{ match: Match; state: TournamentState }>(
+          '/api/admin/matches',
+          'POST',
+          {
+            round: newMatchRound,
+            arenaPitch: newMatchPitch,
+            homeTeamId: newMatchHomeId || null,
+            awayTeamId: newMatchAwayId || null,
+            scheduledAt: iso,
+          },
+        );
+        onStateUpdated(data.state);
+        setSelectedMatchId(data.match.id);
+        void syncMatchToFirestore(data.match);
+      }
       notify('ok', 'New fixture added to tournament schedule.');
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to create match');
@@ -373,12 +466,22 @@ export function AdminDashboard({
   async function handleDeleteMatch(matchId: string) {
     setBusy(true);
     try {
-      const data = await adminFetch<{ state: TournamentState }>(
-        `/api/admin/matches/${matchId}`,
-        'DELETE',
-      );
-      onStateUpdated(data.state);
-      void deleteMatchFromFirestore(matchId);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateDeleteMatch(state, matchId);
+        onStateUpdated(res.state);
+        await deleteMatchFromFirestore(matchId);
+        if (res.metaChanged) {
+          await syncTournamentMetaToFirestore(res.state.meta);
+        }
+      } else {
+        const data = await adminFetch<{ state: TournamentState }>(
+          `/api/admin/matches/${matchId}`,
+          'DELETE',
+        );
+        onStateUpdated(data.state);
+        void deleteMatchFromFirestore(matchId);
+      }
       notify('ok', 'Fixture removed.');
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to delete match');
@@ -392,24 +495,42 @@ export function AdminDashboard({
     if (!newTeamName.trim() || !newTeamCode.trim()) return;
     setBusy(true);
     try {
-      const data = await adminFetch<{ team: Team; state: TournamentState }>(
-        '/api/admin/teams',
-        'POST',
-        {
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateCreateTeam(state, {
           name: newTeamName.trim(),
           shortCode: newTeamCode.trim().toUpperCase(),
           division: newTeamDiv,
           accentColor: newTeamColor,
           robots: [],
-        },
-      );
-      onStateUpdated(data.state);
-      setSelectedTeamId(data.team.id);
-      setShowBulkImport(false);
-      setNewTeamName('');
-      setNewTeamCode('');
-      await syncTeamToFirestore(data.team);
-      notify('ok', `Registered team ${data.team.name}.`);
+        });
+        onStateUpdated(res.state);
+        setSelectedTeamId(res.team.id);
+        setShowBulkImport(false);
+        setNewTeamName('');
+        setNewTeamCode('');
+        await syncTeamToFirestore(res.team);
+        notify('ok', `Registered team ${res.team.name}.`);
+      } else {
+        const data = await adminFetch<{ team: Team; state: TournamentState }>(
+          '/api/admin/teams',
+          'POST',
+          {
+            name: newTeamName.trim(),
+            shortCode: newTeamCode.trim().toUpperCase(),
+            division: newTeamDiv,
+            accentColor: newTeamColor,
+            robots: [],
+          },
+        );
+        onStateUpdated(data.state);
+        setSelectedTeamId(data.team.id);
+        setShowBulkImport(false);
+        setNewTeamName('');
+        setNewTeamCode('');
+        await syncTeamToFirestore(data.team);
+        notify('ok', `Registered team ${data.team.name}.`);
+      }
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to create team');
     } finally {
@@ -422,20 +543,29 @@ export function AdminDashboard({
     if (!activeTeam || !editTeamName.trim() || !editTeamCode.trim()) return;
     setBusy(true);
     try {
-      const data = await adminFetch<{ team: Team; state: TournamentState }>(
-        `/api/admin/teams/${activeTeam.id}`,
-        'PATCH',
-        {
-          name: editTeamName.trim(),
-          shortCode: editTeamCode.trim().toUpperCase(),
-          division: editTeamDiv.trim() || 'Group A',
-          seed: Number(editTeamSeed) || activeTeam.seed,
-          accentColor: editTeamColor,
-        },
-      );
-      onStateUpdated(data.state);
-      await syncTeamToFirestore(data.team);
-      notify('ok', `Saved changes for ${data.team.name}.`);
+      const patch = {
+        name: editTeamName.trim(),
+        shortCode: editTeamCode.trim().toUpperCase(),
+        division: editTeamDiv.trim() || 'Group A',
+        seed: Number(editTeamSeed) || activeTeam.seed,
+        accentColor: editTeamColor,
+      };
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateUpdateTeam(state, activeTeam.id, patch);
+        onStateUpdated(res.state);
+        await syncTeamToFirestore(res.team);
+        notify('ok', `Saved changes for ${res.team.name}.`);
+      } else {
+        const data = await adminFetch<{ team: Team; state: TournamentState }>(
+          `/api/admin/teams/${activeTeam.id}`,
+          'PATCH',
+          patch,
+        );
+        onStateUpdated(data.state);
+        await syncTeamToFirestore(data.team);
+        notify('ok', `Saved changes for ${data.team.name}.`);
+      }
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to update team details');
     } finally {
@@ -469,14 +599,22 @@ export function AdminDashboard({
             }
           : r,
       );
-      const data = await adminFetch<{ team: Team; state: TournamentState }>(
-        `/api/admin/teams/${activeTeam.id}`,
-        'PATCH',
-        { robots: updatedRobots },
-      );
-      onStateUpdated(data.state);
-      setEditingRobotId(null);
-      await syncTeamToFirestore(data.team);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateUpdateTeam(state, activeTeam.id, { robots: updatedRobots });
+        onStateUpdated(res.state);
+        setEditingRobotId(null);
+        await syncTeamToFirestore(res.team);
+      } else {
+        const data = await adminFetch<{ team: Team; state: TournamentState }>(
+          `/api/admin/teams/${activeTeam.id}`,
+          'PATCH',
+          { robots: updatedRobots },
+        );
+        onStateUpdated(data.state);
+        setEditingRobotId(null);
+        await syncTeamToFirestore(data.team);
+      }
       notify('ok', `Updated robot unit on ${activeTeam.name}.`);
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to update robot unit');
@@ -499,17 +637,28 @@ export function AdminDashboard({
         operator: robotOperator.trim() || 'Unassigned',
       };
       const updatedRobots = [...activeTeam.robots, newRobot].slice(0, 10);
-      const data = await adminFetch<{ team: Team; state: TournamentState }>(
-        `/api/admin/teams/${activeTeam.id}`,
-        'PATCH',
-        { robots: updatedRobots },
-      );
-      onStateUpdated(data.state);
-      setRobotNum('');
-      setRobotDesig('');
-      setRobotActuation('');
-      setRobotOperator('');
-      await syncTeamToFirestore(data.team);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateUpdateTeam(state, activeTeam.id, { robots: updatedRobots });
+        onStateUpdated(res.state);
+        setRobotNum('');
+        setRobotDesig('');
+        setRobotActuation('');
+        setRobotOperator('');
+        await syncTeamToFirestore(res.team);
+      } else {
+        const data = await adminFetch<{ team: Team; state: TournamentState }>(
+          `/api/admin/teams/${activeTeam.id}`,
+          'PATCH',
+          { robots: updatedRobots },
+        );
+        onStateUpdated(data.state);
+        setRobotNum('');
+        setRobotDesig('');
+        setRobotActuation('');
+        setRobotOperator('');
+        await syncTeamToFirestore(data.team);
+      }
       notify('ok', `Added Unit #${newRobot.unitNumber} to ${activeTeam.name}.`);
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to add robot unit');
@@ -523,13 +672,20 @@ export function AdminDashboard({
     setBusy(true);
     try {
       const updatedRobots = activeTeam.robots.filter((r) => r.id !== robotId);
-      const data = await adminFetch<{ team: Team; state: TournamentState }>(
-        `/api/admin/teams/${activeTeam.id}`,
-        'PATCH',
-        { robots: updatedRobots },
-      );
-      onStateUpdated(data.state);
-      await syncTeamToFirestore(data.team);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateUpdateTeam(state, activeTeam.id, { robots: updatedRobots });
+        onStateUpdated(res.state);
+        await syncTeamToFirestore(res.team);
+      } else {
+        const data = await adminFetch<{ team: Team; state: TournamentState }>(
+          `/api/admin/teams/${activeTeam.id}`,
+          'PATCH',
+          { robots: updatedRobots },
+        );
+        onStateUpdated(data.state);
+        await syncTeamToFirestore(data.team);
+      }
       notify('ok', 'Robot unit removed from roster.');
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to remove robot');
@@ -541,12 +697,22 @@ export function AdminDashboard({
   async function handleDeleteTeam(teamId: string) {
     setBusy(true);
     try {
-      const data = await adminFetch<{ state: TournamentState }>(
-        `/api/admin/teams/${teamId}`,
-        'DELETE',
-      );
-      onStateUpdated(data.state);
-      await deleteTeamFromFirestore(teamId);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateDeleteTeam(state, teamId);
+        onStateUpdated(res.state);
+        await deleteTeamFromFirestore(teamId);
+        for (const m of res.affectedMatches) {
+          await syncMatchToFirestore(m);
+        }
+      } else {
+        const data = await adminFetch<{ state: TournamentState }>(
+          `/api/admin/teams/${teamId}`,
+          'DELETE',
+        );
+        onStateUpdated(data.state);
+        await deleteTeamFromFirestore(teamId);
+      }
       notify('ok', 'Team deleted.');
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to delete team');
@@ -559,13 +725,20 @@ export function AdminDashboard({
     e.preventDefault();
     setBusy(true);
     try {
-      const data = await adminFetch<{ state: TournamentState }>(
-        '/api/admin/tournament',
-        'PATCH',
-        { name: metaName, season: metaSeason },
-      );
-      onStateUpdated(data.state);
-      await syncFullStateToFirestore(data.state);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const nextState = mutateTournamentMeta(state, { name: metaName, season: metaSeason });
+        onStateUpdated(nextState);
+        await syncFullStateToFirestore(nextState);
+      } else {
+        const data = await adminFetch<{ state: TournamentState }>(
+          '/api/admin/tournament',
+          'PATCH',
+          { name: metaName, season: metaSeason },
+        );
+        onStateUpdated(data.state);
+        await syncFullStateToFirestore(data.state);
+      }
       notify('ok', 'Tournament settings saved and synced to Firestore.');
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to save settings');
@@ -589,12 +762,19 @@ export function AdminDashboard({
   async function handleSeedBracketFromStandings() {
     setBusy(true);
     try {
-      const data = await adminFetch<{ state: TournamentState }>(
-        '/api/admin/bracket/seed-from-standings',
-        'POST',
-      );
-      onStateUpdated(data.state);
-      await syncFullStateToFirestore(data.state);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const nextState = mutateSeedBracketFromStandings(state);
+        onStateUpdated(nextState);
+        await syncFullStateToFirestore(nextState);
+      } else {
+        const data = await adminFetch<{ state: TournamentState }>(
+          '/api/admin/bracket/seed-from-standings',
+          'POST',
+        );
+        onStateUpdated(data.state);
+        await syncFullStateToFirestore(data.state);
+      }
       notify(
         'ok',
         'Sudden-death bracket seeded from group standings (#1–#4 QF Bye, #5–#12 Play-In).',
@@ -609,21 +789,36 @@ export function AdminDashboard({
   async function handleBulkImportTeams(drafts: BulkTeamDraft[]) {
     setBusy(true);
     try {
-      const data = await adminFetch<{
-        createdCount: number;
-        teams: Team[];
-        state: TournamentState;
-      }>('/api/admin/teams/bulk', 'POST', { teams: drafts });
-      onStateUpdated(data.state);
-      if (data.teams[0]) {
-        setSelectedTeamId(data.teams[0].id);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const res = mutateBulkCreateTeams(state, drafts);
+        onStateUpdated(res.state);
+        if (res.teams[0]) {
+          setSelectedTeamId(res.teams[0].id);
+        }
+        setShowBulkImport(false);
+        await syncFullStateToFirestore(res.state);
+        notify(
+          'ok',
+          `Imported ${res.createdCount} team${res.createdCount === 1 ? '' : 's'} and synced to Firestore.`,
+        );
+      } else {
+        const data = await adminFetch<{
+          createdCount: number;
+          teams: Team[];
+          state: TournamentState;
+        }>('/api/admin/teams/bulk', 'POST', { teams: drafts });
+        onStateUpdated(data.state);
+        if (data.teams[0]) {
+          setSelectedTeamId(data.teams[0].id);
+        }
+        setShowBulkImport(false);
+        await syncFullStateToFirestore(data.state);
+        notify(
+          'ok',
+          `Imported ${data.createdCount} team${data.createdCount === 1 ? '' : 's'} and synced to Firestore.`,
+        );
       }
-      setShowBulkImport(false);
-      await syncFullStateToFirestore(data.state);
-      notify(
-        'ok',
-        `Imported ${data.createdCount} team${data.createdCount === 1 ? '' : 's'} and synced to Firestore.`,
-      );
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to bulk import teams');
     } finally {
@@ -634,19 +829,33 @@ export function AdminDashboard({
   async function handleGenerateTournamentSchedule() {
     setBusy(true);
     try {
-      const data = await adminFetch<{ state: TournamentState }>(
-        '/api/admin/schedule/generate-tournament',
-        'POST',
-      );
-      onStateUpdated(data.state);
-      if (data.state.matches[0]) {
-        setSelectedMatchId(data.state.matches[0].id);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const nextState = mutateGenerateTournamentSchedule(state);
+        onStateUpdated(nextState);
+        if (nextState.matches[0]) {
+          setSelectedMatchId(nextState.matches[0].id);
+        }
+        await syncFullStateToFirestore(nextState);
+        notify(
+          'ok',
+          `Generated ${nextState.matches.length} fixtures (Group Round-Robin + Sudden-Death Bracket).`,
+        );
+      } else {
+        const data = await adminFetch<{ state: TournamentState }>(
+          '/api/admin/schedule/generate-tournament',
+          'POST',
+        );
+        onStateUpdated(data.state);
+        if (data.state.matches[0]) {
+          setSelectedMatchId(data.state.matches[0].id);
+        }
+        await syncFullStateToFirestore(data.state);
+        notify(
+          'ok',
+          `Generated ${data.state.matches.length} fixtures (Group Round-Robin + Sudden-Death Bracket).`,
+        );
       }
-      await syncFullStateToFirestore(data.state);
-      notify(
-        'ok',
-        `Generated ${data.state.matches.length} fixtures (Group Round-Robin + Sudden-Death Bracket).`,
-      );
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to generate schedule');
     } finally {
@@ -657,18 +866,32 @@ export function AdminDashboard({
   async function handleResetTournament() {
     setBusy(true);
     try {
-      const data = await adminFetch<{ state: TournamentState }>('/api/admin/reset', 'POST', {
-        mode: 'clear',
-      });
-      onStateUpdated(data.state);
-      setSelectedMatchId('');
-      setSelectedTeamId('');
-      setNewMatchHomeId('');
-      setNewMatchAwayId('');
-      setConfirmReset(false);
-      setShowBulkImport(true);
-      setActiveTab('teams');
-      await syncFullStateToFirestore(data.state);
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const nextState = mutateResetTournament(state, 'clear');
+        onStateUpdated(nextState);
+        setSelectedMatchId('');
+        setSelectedTeamId('');
+        setNewMatchHomeId('');
+        setNewMatchAwayId('');
+        setConfirmReset(false);
+        setShowBulkImport(true);
+        setActiveTab('teams');
+        await syncFullStateToFirestore(nextState);
+      } else {
+        const data = await adminFetch<{ state: TournamentState }>('/api/admin/reset', 'POST', {
+          mode: 'clear',
+        });
+        onStateUpdated(data.state);
+        setSelectedMatchId('');
+        setSelectedTeamId('');
+        setNewMatchHomeId('');
+        setNewMatchAwayId('');
+        setConfirmReset(false);
+        setShowBulkImport(true);
+        setActiveTab('teams');
+        await syncFullStateToFirestore(data.state);
+      }
       notify(
         'ok',
         'Tournament reset. Enter your teams below via Bulk Add or Register New Team.',
@@ -986,12 +1209,22 @@ export function AdminDashboard({
                       onClick={async () => {
                         setBusy(true);
                         try {
-                          const data = await adminFetch<{ state: TournamentState }>(
-                            '/api/admin/tournament',
-                            'PATCH',
-                            { activeMatchId: activeMatch.id },
-                          );
-                          onStateUpdated(data.state);
+                          if (backendMode === 'firestore') {
+                            if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+                            const nextState = mutateTournamentMeta(state, {
+                              activeMatchId: activeMatch.id,
+                            });
+                            onStateUpdated(nextState);
+                            await syncTournamentMetaToFirestore(nextState.meta);
+                          } else {
+                            const data = await adminFetch<{ state: TournamentState }>(
+                              '/api/admin/tournament',
+                              'PATCH',
+                              { activeMatchId: activeMatch.id },
+                            );
+                            onStateUpdated(data.state);
+                            void syncTournamentMetaToFirestore(data.state.meta);
+                          }
                           notify('ok', 'Featured match updated on Live Arena.');
                         } catch (err) {
                           notify(

@@ -1,6 +1,6 @@
 import { Radio } from 'lucide-react';
 import { useState } from 'react';
-import type { SocketStatus } from '../hooks/useTournamentSocket';
+import type { BackendMode, SocketStatus } from '../hooks/useTournamentSocket';
 import type { Match, Team, TournamentMeta } from '../types/tournament';
 import { formatMatchClock, formatScheduledTime } from '../utils/formatTime';
 import { TeamCrest } from './TeamCrest';
@@ -9,18 +9,20 @@ interface LiveArenaSectionProps {
   meta: TournamentMeta;
   matches: Match[];
   teams: Team[];
+  backendMode?: BackendMode;
   socketStatus: SocketStatus;
   connectedClients: number;
   selectedMatchId: string | null;
   onSelectMatch: (matchId: string) => void;
 }
 
-const ARENA_HERO_IMAGE = '/src/assets/images/arena_hero_pitch_1794965804151.jpg';
+const ARENA_HERO_IMAGE = './src/assets/images/arena_hero_pitch_1794965804151.jpg';
 
 export function LiveArenaSection({
   meta,
   matches,
   teams,
+  backendMode = 'server',
   socketStatus,
   connectedClients,
   selectedMatchId,
@@ -95,16 +97,22 @@ export function LiveArenaSection({
                 <Radio className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>
                   {socketStatus === 'connected'
-                    ? 'WebSocket Sync Active'
+                    ? backendMode === 'firestore'
+                      ? 'Live Cloud Sync'
+                      : 'WebSocket Sync Active'
                     : socketStatus === 'reconnecting'
                       ? 'Reconnecting'
                       : 'Connecting'}
                 </span>
               </span>
-              <span className="text-slate-600" aria-hidden="true">
-                ·
-              </span>
-              <span className="text-slate-300">{connectedClients} Connected</span>
+              {backendMode === 'server' && (
+                <>
+                  <span className="text-slate-600" aria-hidden="true">
+                    ·
+                  </span>
+                  <span className="text-slate-300">{connectedClients} Connected</span>
+                </>
+              )}
             </div>
           </div>
 

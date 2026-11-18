@@ -4,13 +4,16 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   serverTimestamp,
   setDoc,
   updateDoc,
   where,
   writeBatch,
+  type DocumentData,
 } from 'firebase/firestore';
+import { createEmptyTournament } from '../data/seedTournament';
 import { AUTHORIZED_ADMIN_EMAIL, auth, db, handleFirestoreError, OperationType } from '../firebase';
 import type { Match, Team, TournamentMeta, TournamentState } from '../types/tournament';
 
@@ -24,12 +27,17 @@ function canAdminSync(): boolean {
 }
 
 function buildTournamentPayload(meta: TournamentMeta, isCreate: boolean) {
+  const safeName = meta.name && meta.name.trim().length >= 2 ? meta.name.trim() : 'RoboPitch Championship 2026';
+  const safeSeason =
+    meta.season && meta.season.trim().length >= 2
+      ? meta.season.trim()
+      : '3 Groups · Round-Robin + Sudden-Death Bracket · 4-Min Matches';
   const payload: Record<string, unknown> = {
     id: meta.id,
-    name: meta.name.slice(0, 120),
-    season: meta.season.slice(0, 120),
+    name: safeName.slice(0, 120),
+    season: safeSeason.slice(0, 120),
     activeMatchId: meta.activeMatchId ?? null,
-    rulesVersion: meta.rulesVersion ?? 2,
+    rulesVersion: meta.rulesVersion ?? 3,
     visibility: 'public',
     updatedAt: serverTimestamp(),
   };
@@ -89,6 +97,22 @@ function buildMatchPayload(match: Match, isCreate: boolean) {
     payload.createdAt = serverTimestamp();
   }
   return payload;
+}
+
+export async function syncTournamentMetaToFirestore(meta: TournamentMeta): Promise<void> {
+  if (!canAdminSync()) return;
+  const path = `tournament/${meta.id}`;
+  const ref = doc(db, 'tournament', meta.id);
+  try {
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      await updateDoc(ref, buildTournamentPayload(meta, false));
+    } else {
+      await setDoc(ref, buildTournamentPayload(meta, true));
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
 }
 
 export async function syncMatchToFirestore(match: Match): Promise<void> {
@@ -202,6 +226,48 @@ export async function syncFullStateToFirestore(state: TournamentState): Promise<
   }
 }
 
+function mapTeamDoc(id: string, data: DocumentData): Team {
+  return {
+    id: String(data.id ?? id),
+    name: String(data.name ?? ''),
+    shortCode: String(data.shortCode ?? ''),
+    division: String(data.division ?? 'Group A'),
+    region: String(data.region ?? 'School Class'),
+    accentColor: String(data.accentColor ?? '#C8F135'),
+    seed: Number(data.seed ?? 1),
+    robots: Array.isArray(data.robots) ? (data.robots as Team['robots']) : [],
+  };
+}
+
+function mapMatchDoc(id: string, data: DocumentData): Match {
+  return {
+    id: String(data.id ?? id),
+    round: (data.round as Match['round']) ?? 'Group',
+    bracketSlot: Number(data.bracketSlot ?? 0),
+    nextMatchId: (data.nextMatchId as string | null) ?? null,
+    nextMatchSide:
+      data.nextMatchSide === 'home' || data.nextMatchSide === 'away'
+        ? data.nextMatchSide
+        : null,
+    homeTeamId: (data.homeTeamId as string | null) ?? null,
+    awayTeamId: (data.awayTeamId as string | null) ?? null,
+    homeScore: Number(data.homeScore ?? 0),
+    awayScore: Number(data.awayScore ?? 0),
+    homeFlipOvers: Number(data.homeFlipOvers ?? 0),
+    awayFlipOvers: Number(data.awayFlipOvers ?? 0),
+    durationSeconds: Number(data.durationSeconds ?? 240),
+    status: (data.status as Match['status']) ?? 'scheduled',
+    period: String(data.period ?? 'Pre-Match'),
+    clockSeconds: Number(data.clockSeconds ?? 0),
+    clockRunning: Boolean(data.clockRunning),
+    clockUpdatedAt: Date.now(),
+    arenaPitch: String(data.arenaPitch ?? 'Pitch Alpha'),
+    scheduledAt: String(data.scheduledAt ?? ''),
+    winnerTeamId: (data.winnerTeamId as string | null) ?? null,
+    events: Array.isArray(data.events) ? (data.events as Match['events']) : [],
+  };
+}
+
 export async function fetchFirestoreTournamentState(): Promise<TournamentState | null> {
   try {
     const metaSnap = await getDoc(doc(db, 'tournament', 'main'));
@@ -215,49 +281,8 @@ export async function fetchFirestoreTournamentState(): Promise<TournamentState |
       getDocs(query(collection(db, 'matches'), where('visibility', '==', 'public'))),
     ]);
 
-    const teams: Team[] = teamsSnap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: String(data.id ?? d.id),
-        name: String(data.name ?? ''),
-        shortCode: String(data.shortCode ?? ''),
-        division: String(data.division ?? 'Group A'),
-        region: String(data.region ?? 'School Class'),
-        accentColor: String(data.accentColor ?? '#C8F135'),
-        seed: Number(data.seed ?? 1),
-        robots: Array.isArray(data.robots) ? (data.robots as Team['robots']) : [],
-      };
-    });
-
-    const matches: Match[] = matchesSnap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: String(data.id ?? d.id),
-        round: (data.round as Match['round']) ?? 'Group',
-        bracketSlot: Number(data.bracketSlot ?? 0),
-        nextMatchId: (data.nextMatchId as string | null) ?? null,
-        nextMatchSide:
-          data.nextMatchSide === 'home' || data.nextMatchSide === 'away'
-            ? data.nextMatchSide
-            : null,
-        homeTeamId: (data.homeTeamId as string | null) ?? null,
-        awayTeamId: (data.awayTeamId as string | null) ?? null,
-        homeScore: Number(data.homeScore ?? 0),
-        awayScore: Number(data.awayScore ?? 0),
-        homeFlipOvers: Number(data.homeFlipOvers ?? 0),
-        awayFlipOvers: Number(data.awayFlipOvers ?? 0),
-        durationSeconds: Number(data.durationSeconds ?? 240),
-        status: (data.status as Match['status']) ?? 'scheduled',
-        period: String(data.period ?? 'Pre-Match'),
-        clockSeconds: Number(data.clockSeconds ?? 0),
-        clockRunning: Boolean(data.clockRunning),
-        clockUpdatedAt: Date.now(),
-        arenaPitch: String(data.arenaPitch ?? 'Pitch Alpha'),
-        scheduledAt: String(data.scheduledAt ?? ''),
-        winnerTeamId: (data.winnerTeamId as string | null) ?? null,
-        events: Array.isArray(data.events) ? (data.events as Match['events']) : [],
-      };
-    });
+    const teams: Team[] = teamsSnap.docs.map((d) => mapTeamDoc(d.id, d.data()));
+    const matches: Match[] = matchesSnap.docs.map((d) => mapMatchDoc(d.id, d.data()));
 
     return {
       meta: {
@@ -274,4 +299,92 @@ export async function fetchFirestoreTournamentState(): Promise<TournamentState |
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, 'tournament/main');
   }
+}
+
+export function subscribeToFirestoreTournamentState(
+  onUpdate: (state: TournamentState) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  const fallback = createEmptyTournament();
+  let metaLoaded = false;
+  let teamsLoaded = false;
+  let matchesLoaded = false;
+
+  let currentMeta: TournamentMeta = fallback.meta;
+  let currentTeams: Team[] = [];
+  let currentMatches: Match[] = [];
+
+  const emitIfReady = () => {
+    if (!metaLoaded || !teamsLoaded || !matchesLoaded) return;
+    onUpdate({
+      meta: { ...currentMeta, updatedAt: Date.now() },
+      teams: currentTeams,
+      matches: currentMatches,
+    });
+  };
+
+  const reportError = (err: unknown, path: string) => {
+    try {
+      handleFirestoreError(err, OperationType.GET, path);
+    } catch (wrapped) {
+      if (onError && wrapped instanceof Error) {
+        onError(wrapped);
+      }
+    }
+  };
+
+  const unsubMeta = onSnapshot(
+    doc(db, 'tournament', 'main'),
+    (snap) => {
+      metaLoaded = true;
+      if (snap.exists()) {
+        const metaData = snap.data();
+        currentMeta = {
+          id: 'main',
+          name: String(metaData.name ?? 'RoboPitch Championship 2026'),
+          season: String(
+            metaData.season ??
+              '3 Groups · Round-Robin + Sudden-Death Bracket · 4-Min Matches',
+          ),
+          activeMatchId: (metaData.activeMatchId as string | null) ?? null,
+          updatedAt: Date.now(),
+          rulesVersion: Number(metaData.rulesVersion ?? 3),
+        };
+      } else {
+        currentMeta = fallback.meta;
+      }
+      emitIfReady();
+    },
+    (error) => reportError(error, 'tournament/main'),
+  );
+
+  const unsubTeams = onSnapshot(
+    query(collection(db, 'teams'), where('visibility', '==', 'public')),
+    (snap) => {
+      teamsLoaded = true;
+      currentTeams = snap.docs
+        .map((d) => mapTeamDoc(d.id, d.data()))
+        .sort((a, b) => a.seed - b.seed);
+      emitIfReady();
+    },
+    (error) => reportError(error, 'teams'),
+  );
+
+  const unsubMatches = onSnapshot(
+    query(collection(db, 'matches'), where('visibility', '==', 'public')),
+    (snap) => {
+      matchesLoaded = true;
+      currentMatches = snap.docs
+        .map((d) => mapMatchDoc(d.id, d.data()))
+        .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+      emitIfReady();
+    },
+    (error) => reportError(error, 'matches'),
+  );
+
+  return () => {
+    unsubMeta();
+    unsubTeams();
+    unsubMatches();
+  };
 }
