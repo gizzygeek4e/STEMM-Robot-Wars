@@ -1027,9 +1027,68 @@ app.post('/api/admin/hydrate', requireAdmin, (req, res) => {
 });
 
 app.post('/api/admin/reset', requireAdmin, (req, res) => {
-  const mode = (req.body as { mode?: 'clear' | 'demo' } | undefined)?.mode ?? 'clear';
+  const mode =
+    (req.body as { mode?: 'clear' | 'demo' | 'reset-matches' | 'clear-matches' } | undefined)
+      ?.mode ?? 'clear';
   if (mode === 'demo') {
     state = createSeedTournament();
+  } else if (mode === 'clear-matches') {
+    state = {
+      ...state,
+      meta: {
+        ...state.meta,
+        activeMatchId: null,
+        updatedAt: Date.now(),
+      },
+      matches: [],
+    };
+  } else if (mode === 'reset-matches') {
+    const now = Date.now();
+    const fedSlots = new Set<string>();
+    for (const m of state.matches) {
+      if (m.nextMatchId && m.nextMatchSide) {
+        fedSlots.add(`${m.nextMatchId}:${m.nextMatchSide}`);
+      }
+    }
+    const hasSemifinals = state.matches.some((m) => m.round === 'Semifinal');
+
+    const clearedMatches: Match[] = state.matches.map((m) => {
+      let homeTeamId = m.homeTeamId;
+      let awayTeamId = m.awayTeamId;
+      if (fedSlots.has(`${m.id}:home`)) homeTeamId = null;
+      if (fedSlots.has(`${m.id}:away`)) awayTeamId = null;
+      if (m.round === 'Third Place' && hasSemifinals) {
+        homeTeamId = null;
+        awayTeamId = null;
+      }
+      return {
+        ...m,
+        homeTeamId,
+        awayTeamId,
+        homeScore: 0,
+        awayScore: 0,
+        homeFlipOvers: 0,
+        awayFlipOvers: 0,
+        status: 'scheduled',
+        period: 'Pre-Match',
+        clockSeconds: 0,
+        clockRunning: false,
+        clockUpdatedAt: now,
+        winnerTeamId: null,
+        events: [],
+      };
+    });
+
+    const reseededMatches = applySeededSuddenDeathBracket(state.teams, clearedMatches);
+    state = {
+      ...state,
+      meta: {
+        ...state.meta,
+        activeMatchId: reseededMatches[0]?.id ?? null,
+        updatedAt: now,
+      },
+      matches: reseededMatches,
+    };
   } else {
     state = createEmptyTournament({
       name: state.meta.name,

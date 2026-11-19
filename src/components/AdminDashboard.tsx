@@ -83,6 +83,7 @@ export function AdminDashboard({
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmResetMatches, setConfirmResetMatches] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState<boolean>(state.teams.length === 0);
   const hydratedRef = useRef(false);
 
@@ -943,6 +944,38 @@ export function AdminDashboard({
     }
   }
 
+  async function handleResetMatches(mode: 'reset-matches' | 'clear-matches') {
+    setBusy(true);
+    try {
+      if (backendMode === 'firestore') {
+        if (!isAuthorizedAdmin) throw new Error('Account not authorized');
+        const nextState = mutateResetTournament(state, mode);
+        onStateUpdated(nextState);
+        setSelectedMatchId(nextState.matches[0]?.id ?? '');
+        setConfirmResetMatches(false);
+        await syncFullStateToFirestore(nextState);
+      } else {
+        const data = await adminFetch<{ state: TournamentState }>('/api/admin/reset', 'POST', {
+          mode,
+        });
+        onStateUpdated(data.state);
+        setSelectedMatchId(data.state.matches[0]?.id ?? '');
+        setConfirmResetMatches(false);
+        await syncFullStateToFirestore(data.state);
+      }
+      notify(
+        'ok',
+        mode === 'reset-matches'
+          ? 'All match scores, flip overs, clocks, and events reset to 0–0. Teams kept.'
+          : 'All matches cleared while keeping all teams and robot rosters.',
+      );
+    } catch (err) {
+      notify('err', err instanceof Error ? err.message : 'Failed to reset matches');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!authReady) {
     return (
       <div className="max-w-lg mx-auto my-16 bg-[#11151C] border border-white/10 rounded-xl p-8 text-center text-sm text-slate-400">
@@ -1046,11 +1079,56 @@ export function AdminDashboard({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {!confirmResetMatches ? (
+            <button
+              type="button"
+              disabled={busy || state.matches.length === 0}
+              onClick={() => {
+                setConfirmReset(false);
+                setConfirmResetMatches(true);
+              }}
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg border border-amber-400/40 text-amber-300 hover:bg-amber-400/10 transition-colors cursor-pointer disabled:opacity-45"
+            >
+              <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Reset Matches</span>
+            </button>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => handleResetMatches('reset-matches')}
+                className="px-3.5 py-2 text-xs font-bold rounded-lg bg-amber-400 text-[#090B0E] hover:bg-amber-300 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Reset Scores &amp; Clocks
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => handleResetMatches('clear-matches')}
+                className="px-3.5 py-2 text-xs font-bold rounded-lg border border-rose-500/50 text-rose-300 hover:bg-rose-500/15 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Delete All Matches
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmResetMatches(false)}
+                className="px-2.5 py-2 text-xs text-slate-300 hover:text-white cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
           {!confirmReset ? (
             <button
               type="button"
               disabled={busy}
-              onClick={() => setConfirmReset(true)}
+              onClick={() => {
+                setConfirmResetMatches(false);
+                setConfirmReset(true);
+              }}
               className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg border border-rose-500/40 text-rose-300 hover:bg-rose-500/10 transition-colors cursor-pointer disabled:opacity-50"
             >
               <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />

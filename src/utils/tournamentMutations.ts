@@ -842,10 +842,69 @@ export function mutateGenerateTournamentSchedule(state: TournamentState): Tourna
 
 export function mutateResetTournament(
   state: TournamentState,
-  mode: 'clear' | 'demo' = 'clear',
+  mode: 'clear' | 'demo' | 'reset-matches' | 'clear-matches' = 'clear',
 ): TournamentState {
   if (mode === 'demo') {
     return createSeedTournament();
+  }
+  if (mode === 'clear-matches') {
+    return {
+      ...state,
+      meta: {
+        ...state.meta,
+        activeMatchId: null,
+        updatedAt: Date.now(),
+      },
+      matches: [],
+    };
+  }
+  if (mode === 'reset-matches') {
+    const now = Date.now();
+    const fedSlots = new Set<string>();
+    for (const m of state.matches) {
+      if (m.nextMatchId && m.nextMatchSide) {
+        fedSlots.add(`${m.nextMatchId}:${m.nextMatchSide}`);
+      }
+    }
+    const hasSemifinals = state.matches.some((m) => m.round === 'Semifinal');
+
+    const clearedMatches: Match[] = state.matches.map((m) => {
+      let homeTeamId = m.homeTeamId;
+      let awayTeamId = m.awayTeamId;
+      if (fedSlots.has(`${m.id}:home`)) homeTeamId = null;
+      if (fedSlots.has(`${m.id}:away`)) awayTeamId = null;
+      if (m.round === 'Third Place' && hasSemifinals) {
+        homeTeamId = null;
+        awayTeamId = null;
+      }
+      return {
+        ...m,
+        homeTeamId,
+        awayTeamId,
+        homeScore: 0,
+        awayScore: 0,
+        homeFlipOvers: 0,
+        awayFlipOvers: 0,
+        status: 'scheduled',
+        period: 'Pre-Match',
+        clockSeconds: 0,
+        clockRunning: false,
+        clockUpdatedAt: now,
+        winnerTeamId: null,
+        events: [],
+      };
+    });
+
+    const reseededMatches = applySeededSuddenDeathBracket(state.teams, clearedMatches);
+    return {
+      ...state,
+      meta: {
+        ...state.meta,
+        activeMatchId: reseededMatches[0]?.id ?? null,
+        updatedAt: now,
+      },
+      matches: reseededMatches,
+    };
   }
   return createEmptyTournament({
     name: state.meta.name,
