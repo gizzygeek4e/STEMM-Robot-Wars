@@ -140,15 +140,17 @@ export function mutateMatchScore(
   if (!target) throw new Error('Match not found');
 
   const step = Number.isFinite(payload.delta) ? Math.trunc(payload.delta) : 1;
+  const minHome = Math.min(target.homeScore, target.homeFlipOvers ?? 0);
+  const minAway = Math.min(target.awayScore, target.awayFlipOvers ?? 0);
   const updated: Match = {
     ...target,
     homeScore:
       payload.side === 'home'
-        ? Math.max(0, Math.min(999, target.homeScore + step))
+        ? Math.max(step < 0 ? minHome : 0, Math.min(999, target.homeScore + step))
         : target.homeScore,
     awayScore:
       payload.side === 'away'
-        ? Math.max(0, Math.min(999, target.awayScore + step))
+        ? Math.max(step < 0 ? minAway : 0, Math.min(999, target.awayScore + step))
         : target.awayScore,
   };
 
@@ -448,7 +450,7 @@ export function mutateCreateMatch(
     awayScore: 0,
     homeFlipOvers: 0,
     awayFlipOvers: 0,
-    durationSeconds: 240,
+    durationSeconds: 120,
     status: 'scheduled',
     period: 'Pre-Match',
     clockSeconds: 0,
@@ -748,7 +750,7 @@ export function mutateGenerateTournamentSchedule(state: TournamentState): Tourna
     awayScore: 0,
     homeFlipOvers: 0,
     awayFlipOvers: 0,
-    durationSeconds: 240,
+    durationSeconds: 120,
     status: 'scheduled',
     period: 'Pre-Match',
     clockSeconds: 0,

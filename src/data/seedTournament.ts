@@ -1,7 +1,7 @@
 import type { Match, MatchEvent, Team, TournamentState } from '../types/tournament.ts';
 import { applySeededSuddenDeathBracket } from '../utils/bracketSeeding.ts';
 
-export const MATCH_DURATION_SECONDS = 240; // 4 minutes per match
+export const MATCH_DURATION_SECONDS = 120; // 2 minutes per match
 
 function makeGroupMatch(params: {
   id: string;
@@ -325,11 +325,11 @@ export function createSeedTournament(): TournamentState {
       id: 'grp-c6', slot: 18, homeTeamId: 'team-munich', awayTeamId: 'team-wellington',
       homeScore: 2, awayScore: 1, homeFlipOvers: 1, awayFlipOvers: 1,
       pitch: 'Pitch Alpha', scheduledAt: '2026-11-18T11:50:00-08:00',
-      status: 'live', clockSeconds: 158, clockRunning: true, period: '2nd Half', now,
+      status: 'live', clockSeconds: 78, clockRunning: true, period: '2nd Half', now,
       events: [
-        { id: 'ev-c1', minute: 1, teamId: 'team-munich', robotNumber: '14', type: 'goal', description: 'Solenoid strike by Unit #14', timestamp: now - 120000 },
-        { id: 'ev-c2', minute: 2, teamId: 'team-wellington', robotNumber: '12', type: 'flip_over', description: 'Flip Over bonus (+1 pt) by Unit #12', timestamp: now - 80000 },
-        { id: 'ev-c3', minute: 3, teamId: 'team-munich', robotNumber: '99', type: 'flip_over', description: 'Flip Over bonus (+1 pt) by Unit #99', timestamp: now - 35000 },
+        { id: 'ev-c1', minute: 1, teamId: 'team-munich', robotNumber: '14', type: 'goal', description: 'Solenoid strike by Unit #14', timestamp: now - 70000 },
+        { id: 'ev-c2', minute: 1, teamId: 'team-wellington', robotNumber: '12', type: 'flip_over', description: 'Flip Over bonus (+1 pt) by Unit #12', timestamp: now - 45000 },
+        { id: 'ev-c3', minute: 2, teamId: 'team-munich', robotNumber: '99', type: 'flip_over', description: 'Flip Over bonus (+1 pt) by Unit #99', timestamp: now - 20000 },
       ],
     }),
   ];
@@ -632,7 +632,7 @@ export function createSeedTournament(): TournamentState {
     meta: {
       id: 'main',
       name: 'RoboPitch Championship 2026',
-      season: '3 Groups · Round-Robin + Sudden-Death Seeded Bracket · 4-Min Matches',
+      season: '3 Groups · Round-Robin + Sudden-Death Seeded Bracket · 2-Min Matches',
       activeMatchId: 'grp-c6',
       updatedAt: now,
       rulesVersion: 3,
@@ -652,7 +652,7 @@ export function createEmptyTournament(
       name: existingMeta?.name?.trim() || 'RoboPitch Championship 2026',
       season:
         existingMeta?.season?.trim() ||
-        '3 Groups · Round-Robin + Sudden-Death Bracket · 4-Min Matches',
+        '3 Groups · Round-Robin + Sudden-Death Bracket · 2-Min Matches',
       activeMatchId: null,
       updatedAt: now,
       rulesVersion: 3,

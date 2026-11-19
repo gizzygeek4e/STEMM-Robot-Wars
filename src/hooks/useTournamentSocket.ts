@@ -201,7 +201,7 @@ export function useTournamentSocket() {
           ...prev,
           matches: prev.matches.map((m) => {
             if (m.status !== 'live' || !m.clockRunning) return m;
-            const maxDur = m.durationSeconds || 240;
+            const maxDur = m.durationSeconds || 120;
             const nextSec = Math.min(maxDur, m.clockSeconds + 1);
             return {
               ...m,

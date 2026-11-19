@@ -51,13 +51,33 @@ function StandingsTable({
               <th className="py-3.5 px-3 text-right font-mono">W</th>
               <th className="py-3.5 px-3 text-right font-mono">D</th>
               <th className="py-3.5 px-3 text-right font-mono">L</th>
-              <th className="py-3.5 px-3 text-right font-mono hidden md:table-cell">GF</th>
-              <th className="py-3.5 px-3 text-right font-mono hidden md:table-cell">GA</th>
-              <th className="py-3.5 px-3 text-right font-mono">GD</th>
-              <th className="py-3.5 px-3 text-right font-mono" title="Flip Over Bonus Points">
+              <th
+                className="py-3.5 px-3 text-right font-mono hidden md:table-cell"
+                title="Total Match Points For (Goals + Flip Overs)"
+              >
+                PF
+              </th>
+              <th
+                className="py-3.5 px-3 text-right font-mono hidden md:table-cell"
+                title="Total Match Points Against"
+              >
+                PA
+              </th>
+              <th
+                className="py-3.5 px-3 text-right font-mono"
+                title="Match Point Difference"
+              >
+                PD
+              </th>
+              <th
+                className="py-3.5 px-3 text-right font-mono"
+                title="Flip Over Bonus Points (included in match totals)"
+              >
                 FO
               </th>
-              <th className="py-3.5 px-3 text-right font-mono">PTS</th>
+              <th className="py-3.5 px-3 text-right font-mono" title="League Points (3 Win, 1 Draw)">
+                PTS
+              </th>
               <th className="py-3.5 pl-3 pr-5 text-right hidden lg:table-cell">Form</th>
             </tr>
           </thead>
@@ -154,7 +174,7 @@ function StandingsTable({
                       {row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}
                     </td>
                     <td className="py-3 px-3 text-right font-mono tabular-nums text-sky-300">
-                      +{row.flipOvers}
+                      {row.flipOvers}
                     </td>
                     <td className="py-3 px-3 text-right font-mono tabular-nums font-bold text-[#C8F135]">
                       {row.points}
@@ -232,7 +252,7 @@ export function StandingsSection({ teams, matches }: StandingsSectionProps) {
             Group Tables &amp; Bracket Seeding
           </h2>
           <p className="text-sm text-slate-400 mt-1">
-            3 pts Win · 1 pt Draw · +1 Bonus pt per Flip Over. Seeds #1–#4 earn Quarterfinal Byes; #5–#12 enter Round 1 Sudden Death.
+            Match Total = Goals + Flip Over Bonus (+1 pt each) · Win/Loss/Draw based on Match Total (3 pts Win · 1 pt Draw). Seeds #1–#4 earn Quarterfinal Byes; #5–#12 enter Round 1 Sudden Death.
           </p>
         </div>
 

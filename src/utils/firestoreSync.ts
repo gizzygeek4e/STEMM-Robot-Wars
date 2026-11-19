@@ -30,8 +30,8 @@ function buildTournamentPayload(meta: TournamentMeta, isCreate: boolean) {
   const safeName = meta.name && meta.name.trim().length >= 2 ? meta.name.trim() : 'RoboPitch Championship 2026';
   const safeSeason =
     meta.season && meta.season.trim().length >= 2
-      ? meta.season.trim()
-      : '3 Groups · Round-Robin + Sudden-Death Bracket · 4-Min Matches';
+      ? meta.season.trim().replace(/4-Min Matches/g, '2-Min Matches')
+      : '3 Groups · Round-Robin + Sudden-Death Bracket · 2-Min Matches';
   const payload: Record<string, unknown> = {
     id: meta.id,
     name: safeName.slice(0, 120),
@@ -81,7 +81,13 @@ function buildMatchPayload(match: Match, isCreate: boolean) {
     awayScore: Math.max(0, Math.min(999, Math.trunc(match.awayScore))),
     homeFlipOvers: Math.max(0, Math.min(999, Math.trunc(match.homeFlipOvers ?? 0))),
     awayFlipOvers: Math.max(0, Math.min(999, Math.trunc(match.awayFlipOvers ?? 0))),
-    durationSeconds: Math.max(60, Math.min(7200, Math.trunc(match.durationSeconds ?? 240))),
+    durationSeconds: Math.max(
+      60,
+      Math.min(
+        7200,
+        Math.trunc(match.durationSeconds === 240 ? 120 : (match.durationSeconds ?? 120)),
+      ),
+    ),
     status: match.status,
     period: match.period.slice(0, 40),
     clockSeconds: Math.max(0, Math.min(7200, Math.trunc(match.clockSeconds))),
@@ -265,7 +271,7 @@ function mapMatchDoc(id: string, data: DocumentData): Match {
     awayScore: Number(data.awayScore ?? 0),
     homeFlipOvers: Number(data.homeFlipOvers ?? 0),
     awayFlipOvers: Number(data.awayFlipOvers ?? 0),
-    durationSeconds: Number(data.durationSeconds ?? 240),
+    durationSeconds: Number(data.durationSeconds ?? 120) === 240 ? 120 : Number(data.durationSeconds ?? 120),
     status: (data.status as Match['status']) ?? 'scheduled',
     period: String(data.period ?? 'Pre-Match'),
     clockSeconds: Number(data.clockSeconds ?? 0),
@@ -354,8 +360,8 @@ export function subscribeToFirestoreTournamentState(
           name: String(metaData.name ?? 'RoboPitch Championship 2026'),
           season: String(
             metaData.season ??
-              '3 Groups · Round-Robin + Sudden-Death Bracket · 4-Min Matches',
-          ),
+              '3 Groups · Round-Robin + Sudden-Death Bracket · 2-Min Matches',
+          ).replace(/4-Min Matches/g, '2-Min Matches'),
           activeMatchId: (metaData.activeMatchId as string | null) ?? null,
           updatedAt: Date.now(),
           rulesVersion: Number(metaData.rulesVersion ?? 3),

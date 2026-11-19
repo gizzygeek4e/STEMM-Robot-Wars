@@ -208,9 +208,29 @@ export function AdminDashboard({
             }
           }
         }
-        // Automatically sync current tournament state to Firestore when admin signs in
-        if (!fsState || (backendMode === 'server' && !untouchedBoot)) {
-          await syncFullStateToFirestore(state);
+        // Automatically normalize any legacy 4-minute (240s) match docs or missing state in Firestore
+        const hasLegacyDuration =
+          Boolean(fsState?.matches.some((m) => m.durationSeconds === 240)) ||
+          Boolean(fsState?.meta.season?.includes('4-Min Matches'));
+
+        if (!fsState || (backendMode === 'server' && !untouchedBoot) || hasLegacyDuration) {
+          const targetState =
+            hasLegacyDuration && backendMode === 'firestore' && fsState
+              ? {
+                  ...fsState,
+                  meta: {
+                    ...fsState.meta,
+                    season: fsState.meta.season.replace(/4-Min Matches/g, '2-Min Matches'),
+                  },
+                  matches: fsState.matches.map((m) => ({
+                    ...m,
+                    durationSeconds: m.durationSeconds === 240 ? 120 : m.durationSeconds,
+                    clockSeconds:
+                      m.durationSeconds === 240 ? Math.min(120, m.clockSeconds) : m.clockSeconds,
+                  })),
+                }
+              : state;
+          await syncFullStateToFirestore(targetState);
         }
       } catch (err) {
         if (err instanceof Error && err.message.includes('Missing or insufficient permissions')) {
@@ -1296,7 +1316,7 @@ export function AdminDashboard({
                   <div className="space-y-2">
                     <label className="block text-xs font-medium text-slate-400">
                       Match Clock ({formatMatchClock(activeMatch.clockSeconds)} /{' '}
-                      {formatMatchClock(activeMatch.durationSeconds ?? 240)})
+                      {formatMatchClock(activeMatch.durationSeconds ?? 120)})
                     </label>
                     <div className="flex items-center gap-2">
                       <button
@@ -1383,9 +1403,14 @@ export function AdminDashboard({
                               </div>
                             </div>
                           </div>
-                          <span className="font-mono tabular-nums text-4xl font-bold text-white">
-                            {score}
-                          </span>
+                          <div className="text-right shrink-0">
+                            <div className="font-mono tabular-nums text-4xl font-bold text-white leading-none">
+                              {score}
+                            </div>
+                            <div className="text-[11px] font-mono tabular-nums text-slate-400 mt-1">
+                              {Math.max(0, score - flipOvers)}G + {flipOvers}FO
+                            </div>
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -1417,7 +1442,7 @@ export function AdminDashboard({
 
                           <button
                             type="button"
-                            disabled={busy || score <= 0}
+                            disabled={busy || score <= flipOvers || score <= 0}
                             onClick={() => handleScoreChange(side, -1)}
                             className="px-3 py-2 text-xs font-semibold rounded-lg border border-white/15 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
                           >

@@ -49,8 +49,6 @@ export function computeStandings(
 
     home.flipOvers += homeFO;
     away.flipOvers += awayFO;
-    home.points += homeFO;
-    away.points += awayFO;
 
     if (match.homeScore > match.awayScore) {
       home.wins += 1;

@@ -53,7 +53,7 @@ export function ScheduleSection({
             Match Schedule
           </h2>
           <p className="text-sm text-slate-400 mt-1">
-            Group A, B &amp; C round-robin fixtures and Sudden-Death knockout matchups (4:00 per match).
+            Group A, B &amp; C round-robin fixtures and Sudden-Death knockout matchups (2:00 per match).
           </p>
         </div>
 
@@ -171,7 +171,7 @@ export function ScheduleSection({
                 <div className="md:col-span-2 flex flex-col items-end gap-0.5">
                   <span className="font-mono tabular-nums text-xs text-slate-400">
                     {match.status === 'scheduled'
-                      ? '4:00 Match'
+                      ? '2:00 Match'
                       : `Flip Overs ${match.homeFlipOvers ?? 0}-${match.awayFlipOvers ?? 0}`}
                   </span>
                   <span className="text-xs font-medium text-slate-400 hover:text-white">

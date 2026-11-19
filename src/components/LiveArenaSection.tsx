@@ -183,7 +183,7 @@ export function LiveArenaSection({
                     </div>
                     <div className="text-xs text-slate-400 mt-0.5 font-mono tabular-nums">
                       {homeTeam
-                        ? `${homeTeam.division} · ${activeMatch.homeFlipOvers ?? 0} Flip Over${(activeMatch.homeFlipOvers ?? 0) === 1 ? '' : 's'} (+${activeMatch.homeFlipOvers ?? 0} pt)`
+                        ? `${homeTeam.division} · ${Math.max(0, activeMatch.homeScore - (activeMatch.homeFlipOvers ?? 0))}G + ${activeMatch.homeFlipOvers ?? 0} Flip Over${(activeMatch.homeFlipOvers ?? 0) === 1 ? '' : 's'}`
                         : 'Awaiting Qualifier'}
                     </div>
                   </div>
@@ -217,7 +217,7 @@ export function LiveArenaSection({
                     >
                       {activeMatch.status === 'scheduled'
                         ? `Kickoff ${formatScheduledTime(activeMatch.scheduledAt)}`
-                        : `${formatMatchClock(activeMatch.clockSeconds)} / ${formatMatchClock(activeMatch.durationSeconds ?? 240)}`}
+                        : `${formatMatchClock(activeMatch.clockSeconds)} / ${formatMatchClock(activeMatch.durationSeconds ?? 120)}`}
                     </span>
                     <span className="text-slate-600" aria-hidden="true">
                       ·
@@ -239,7 +239,7 @@ export function LiveArenaSection({
                     </div>
                     <div className="text-xs text-slate-400 mt-0.5 font-mono tabular-nums">
                       {awayTeam
-                        ? `${awayTeam.division} · ${activeMatch.awayFlipOvers ?? 0} Flip Over${(activeMatch.awayFlipOvers ?? 0) === 1 ? '' : 's'} (+${activeMatch.awayFlipOvers ?? 0} pt)`
+                        ? `${awayTeam.division} · ${Math.max(0, activeMatch.awayScore - (activeMatch.awayFlipOvers ?? 0))}G + ${activeMatch.awayFlipOvers ?? 0} Flip Over${(activeMatch.awayFlipOvers ?? 0) === 1 ? '' : 's'}`
                         : 'Awaiting Qualifier'}
                     </div>
                   </div>

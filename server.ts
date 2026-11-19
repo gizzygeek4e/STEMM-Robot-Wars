@@ -61,7 +61,29 @@ function loadState(): TournamentState {
         Array.isArray(parsed.teams) &&
         Array.isArray(parsed.matches)
       ) {
-        return parsed;
+        let migrated = false;
+        const normalizedMatches = parsed.matches.map((m) => {
+          if (m.durationSeconds === 240 || !m.durationSeconds) {
+            migrated = true;
+            return {
+              ...m,
+              durationSeconds: 120,
+              clockSeconds: Math.min(120, m.clockSeconds),
+            };
+          }
+          return m;
+        });
+        const nextSeason = parsed.meta.season?.includes('4-Min Matches')
+          ? parsed.meta.season.replace(/4-Min Matches/g, '2-Min Matches')
+          : parsed.meta.season;
+        if (nextSeason !== parsed.meta.season) migrated = true;
+        const nextState: TournamentState = {
+          ...parsed,
+          meta: { ...parsed.meta, season: nextSeason },
+          matches: normalizedMatches,
+        };
+        if (migrated) saveState(nextState);
+        return nextState;
       }
     }
   } catch (err) {
@@ -168,7 +190,7 @@ setInterval(() => {
 
   for (const match of state.matches) {
     if (match.status === 'live' && match.clockRunning) {
-      const maxDuration = match.durationSeconds || 240;
+      const maxDuration = match.durationSeconds || 120;
       const nextSeconds = Math.min(maxDuration, match.clockSeconds + 1);
       match.clockSeconds = nextSeconds;
       if (nextSeconds >= maxDuration) {
@@ -321,9 +343,11 @@ app.post('/api/admin/matches/:id/score', requireAdmin, (req, res) => {
 
   const step = Number.isFinite(delta) ? Math.trunc(delta) : 1;
   if (side === 'home') {
-    match.homeScore = Math.max(0, Math.min(999, match.homeScore + step));
+    const minHome = Math.min(match.homeScore, match.homeFlipOvers ?? 0);
+    match.homeScore = Math.max(step < 0 ? minHome : 0, Math.min(999, match.homeScore + step));
   } else {
-    match.awayScore = Math.max(0, Math.min(999, match.awayScore + step));
+    const minAway = Math.min(match.awayScore, match.awayFlipOvers ?? 0);
+    match.awayScore = Math.max(step < 0 ? minAway : 0, Math.min(999, match.awayScore + step));
   }
 
   const teamId = side === 'home' ? match.homeTeamId : match.awayTeamId;
@@ -571,7 +595,7 @@ app.post('/api/admin/matches', requireAdmin, (req, res) => {
     awayScore: 0,
     homeFlipOvers: 0,
     awayFlipOvers: 0,
-    durationSeconds: 240,
+    durationSeconds: 120,
     status: 'scheduled',
     period: 'Pre-Match',
     clockSeconds: 0,
@@ -878,7 +902,7 @@ app.post('/api/admin/schedule/generate-tournament', requireAdmin, (req, res) => 
     awayScore: 0,
     homeFlipOvers: 0,
     awayFlipOvers: 0,
-    durationSeconds: 240,
+    durationSeconds: 120,
     status: 'scheduled',
     period: 'Pre-Match',
     clockSeconds: 0,
@@ -983,14 +1007,20 @@ app.post('/api/admin/hydrate', requireAdmin, (req, res) => {
       name: String(incoming.meta.name || 'RoboPitch Championship 2026').slice(0, 120),
       season: String(
         incoming.meta.season ||
-          '3 Groups · Round-Robin + Sudden-Death Bracket · 4-Min Matches',
-      ).slice(0, 120),
+          '3 Groups · Round-Robin + Sudden-Death Bracket · 2-Min Matches',
+      )
+        .replace(/4-Min Matches/g, '2-Min Matches')
+        .slice(0, 120),
       activeMatchId: incoming.meta.activeMatchId ?? null,
       updatedAt: Date.now(),
       rulesVersion: 3,
     },
     teams: incoming.teams,
-    matches: incoming.matches,
+    matches: incoming.matches.map((m) =>
+      m.durationSeconds === 240 || !m.durationSeconds
+        ? { ...m, durationSeconds: 120, clockSeconds: Math.min(120, m.clockSeconds) }
+        : m,
+    ),
   };
   broadcastFullState();
   res.json({ state, hydrated: true });
