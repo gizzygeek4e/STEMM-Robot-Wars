@@ -370,14 +370,20 @@ app.post('/api/admin/matches/:id/flip', requireAdmin, (req, res) => {
   }
 
   const step = Number.isFinite(delta) ? Math.trunc(delta) : 1;
+  const prevFlipOvers = side === 'home' ? (match.homeFlipOvers ?? 0) : (match.awayFlipOvers ?? 0);
+  const nextFlipOvers = Math.max(0, Math.min(999, prevFlipOvers + step));
+  const appliedDelta = nextFlipOvers - prevFlipOvers;
+
   if (side === 'home') {
-    match.homeFlipOvers = Math.max(0, Math.min(999, (match.homeFlipOvers ?? 0) + step));
+    match.homeFlipOvers = nextFlipOvers;
+    match.homeScore = Math.max(0, Math.min(999, match.homeScore + appliedDelta));
   } else {
-    match.awayFlipOvers = Math.max(0, Math.min(999, (match.awayFlipOvers ?? 0) + step));
+    match.awayFlipOvers = nextFlipOvers;
+    match.awayScore = Math.max(0, Math.min(999, match.awayScore + appliedDelta));
   }
 
   const teamId = side === 'home' ? match.homeTeamId : match.awayTeamId;
-  if (step > 0 && teamId) {
+  if (appliedDelta > 0 && teamId) {
     const minute = Math.max(1, Math.ceil(match.clockSeconds / 60));
     const unit = (robotNumber || '07').trim().slice(0, 8);
     const ev: MatchEvent = {
@@ -390,6 +396,10 @@ app.post('/api/admin/matches/:id/flip', requireAdmin, (req, res) => {
       timestamp: Date.now(),
     };
     match.events = [...match.events, ev].slice(-50);
+  }
+
+  if (match.status === 'finished') {
+    propagateBracketAdvancement(match);
   }
 
   broadcastFullState();
@@ -470,8 +480,10 @@ app.patch('/api/admin/matches/:id', requireAdmin, (req, res) => {
     match.status = body.status;
     if (body.status === 'live') {
       state.meta.activeMatchId = match.id;
-      if (match.period === 'Pre-Match') {
+      if (match.period === 'Pre-Match' || match.period === 'Full Time') {
         match.period = '1st Half';
+      } else if (match.period === 'Halftime') {
+        match.period = '2nd Half';
       }
     } else if (body.status === 'halftime') {
       match.clockRunning = false;

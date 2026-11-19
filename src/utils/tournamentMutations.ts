@@ -191,25 +191,32 @@ export function mutateMatchFlipOver(
   state: TournamentState,
   matchId: string,
   payload: { side: 'home' | 'away'; delta: number; robotNumber?: string },
-): { state: TournamentState; match: Match } {
+): { state: TournamentState; match: Match; extraChangedMatches: Match[] } {
   const target = state.matches.find((m) => m.id === matchId);
   if (!target) throw new Error('Match not found');
 
   const step = Number.isFinite(payload.delta) ? Math.trunc(payload.delta) : 1;
+  const prevFlipOvers =
+    payload.side === 'home' ? (target.homeFlipOvers ?? 0) : (target.awayFlipOvers ?? 0);
+  const nextFlipOvers = Math.max(0, Math.min(999, prevFlipOvers + step));
+  const appliedDelta = nextFlipOvers - prevFlipOvers;
+
   const updated: Match = {
     ...target,
-    homeFlipOvers:
+    homeFlipOvers: payload.side === 'home' ? nextFlipOvers : target.homeFlipOvers,
+    awayFlipOvers: payload.side === 'away' ? nextFlipOvers : target.awayFlipOvers,
+    homeScore:
       payload.side === 'home'
-        ? Math.max(0, Math.min(999, (target.homeFlipOvers ?? 0) + step))
-        : target.homeFlipOvers,
-    awayFlipOvers:
+        ? Math.max(0, Math.min(999, target.homeScore + appliedDelta))
+        : target.homeScore,
+    awayScore:
       payload.side === 'away'
-        ? Math.max(0, Math.min(999, (target.awayFlipOvers ?? 0) + step))
-        : target.awayFlipOvers,
+        ? Math.max(0, Math.min(999, target.awayScore + appliedDelta))
+        : target.awayScore,
   };
 
   const teamId = payload.side === 'home' ? updated.homeTeamId : updated.awayTeamId;
-  if (step > 0 && teamId) {
+  if (appliedDelta > 0 && teamId) {
     const minute = Math.max(1, Math.ceil(updated.clockSeconds / 60));
     const unit = (payload.robotNumber || '07').trim().slice(0, 8);
     const ev: MatchEvent = {
@@ -224,10 +231,20 @@ export function mutateMatchFlipOver(
     updated.events = [...updated.events, ev].slice(-50);
   }
 
-  const nextMatches = state.matches.map((m) => (m.id === matchId ? updated : m));
+  let nextMatches = state.matches.map((m) => (m.id === matchId ? updated : m));
+  let extraChangedMatches: Match[] = [];
+
+  if (updated.status === 'finished') {
+    const prop = propagateBracketAdvancement(nextMatches, updated.id);
+    nextMatches = prop.matches;
+    extraChangedMatches = nextMatches.filter((m) => prop.extraChangedIds.includes(m.id));
+  }
+
+  const finalMatch = nextMatches.find((m) => m.id === matchId) ?? updated;
   return {
     state: { ...state, meta: { ...state.meta, updatedAt: Date.now() }, matches: nextMatches },
-    match: updated,
+    match: finalMatch,
+    extraChangedMatches,
   };
 }
 
@@ -330,8 +347,10 @@ export function mutatePatchMatch(
         nextMeta.activeMatchId = updated.id;
         metaChanged = true;
       }
-      if (updated.period === 'Pre-Match') {
+      if (updated.period === 'Pre-Match' || updated.period === 'Full Time') {
         updated.period = '1st Half';
+      } else if (updated.period === 'Halftime') {
+        updated.period = '2nd Half';
       }
     } else if (body.status === 'halftime') {
       updated.clockRunning = false;

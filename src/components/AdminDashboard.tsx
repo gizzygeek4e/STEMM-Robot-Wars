@@ -315,6 +315,9 @@ export function AdminDashboard({
         });
         onStateUpdated(res.state);
         await syncMatchToFirestore(res.match);
+        for (const extra of res.extraChangedMatches) {
+          await syncMatchToFirestore(extra);
+        }
       } else {
         const data = await adminFetch<{ match: Match; state: TournamentState }>(
           `/api/admin/matches/${activeMatch.id}/flip`,
@@ -322,11 +325,15 @@ export function AdminDashboard({
           { side, delta, robotNumber: unitNumber },
         );
         onStateUpdated(data.state);
-        void syncMatchToFirestore(data.match);
+        await syncMatchToFirestore(data.match);
+        if (data.match.status === 'finished' && data.match.nextMatchId) {
+          const nextM = data.state.matches.find((m) => m.id === data.match.nextMatchId);
+          if (nextM) await syncMatchToFirestore(nextM);
+        }
       }
       notify(
         'ok',
-        `Updated ${side === 'home' ? 'Home' : 'Away'} Flip Over bonus (+1 pt each).`,
+        `Updated ${side === 'home' ? 'Home' : 'Away'} Flip Over bonus (+1 pt added to total).`,
       );
     } catch (err) {
       notify('err', err instanceof Error ? err.message : 'Failed to update Flip Over count');
@@ -1334,22 +1341,6 @@ export function AdminDashboard({
                         <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
                         <span>Reset</span>
                       </button>
-
-                      <select
-                        aria-label="Match period"
-                        value={activeMatch.period}
-                        onChange={(e) =>
-                          handlePatchMatch(activeMatch.id, { period: e.target.value })
-                        }
-                        className="ml-auto px-3 py-2 text-xs rounded-lg bg-[#090B0E] border border-white/15 text-white focus:outline-none focus:border-[#C8F135]"
-                      >
-                        <option value="Pre-Match">Pre-Match</option>
-                        <option value="1st Half">1st Half</option>
-                        <option value="Halftime">Halftime</option>
-                        <option value="2nd Half">2nd Half</option>
-                        <option value="Overtime">Overtime</option>
-                        <option value="Full Time">Full Time</option>
-                      </select>
                     </div>
                   </div>
                 </div>
@@ -1439,7 +1430,7 @@ export function AdminDashboard({
                           <div className="text-xs text-slate-300 font-mono tabular-nums">
                             Flip Overs:{' '}
                             <span className="font-bold text-sky-300">{flipOvers}</span>{' '}
-                            <span className="text-slate-500">(+{flipOvers} bonus pt)</span>
+                            <span className="text-slate-500">(+{flipOvers} bonus pt in total)</span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <button
